@@ -1,0 +1,99 @@
+{
+  "meta": {
+    "title": "コード理解クイズ（自作・個人学習用）",
+    "source": "自分たちが作ってきたアプリ（aws-quiz, kakeibo-app など）の実コードから作問",
+    "updatedAt": "2026-08-01T00:00:00.000Z"
+  },
+  "questions": [
+    {
+      "id": "q001",
+      "app": "aws-quiz",
+      "topic": "JavaScript基礎",
+      "code": "function esc(s) {\n  return String(s).replace(/[&<>\"']/g, c => ({\n    '&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'\n  }[c]));\n}",
+      "question": "この esc() 関数は何のために使われている？",
+      "choices": [
+        "文字列を大文字に変換するため",
+        "HTMLに埋め込む文字列から特殊文字を無害化する（エスケープ）ため",
+        "文字列を暗号化するため",
+        "文字列の空白を削除するため"
+      ],
+      "answer": 1,
+      "explanation": ""
+    },
+    {
+      "id": "q002",
+      "app": "aws-quiz",
+      "topic": "配列操作",
+      "code": "let arr = [...pool];\nfor (let i = arr.length - 1; i > 0; i--) {\n  const j = Math.floor(Math.random() * (i + 1));\n  [arr[i], arr[j]] = [arr[j], arr[i]];\n}",
+      "question": "このコードは何をしている？",
+      "choices": [
+        "配列を昇順にソートしている",
+        "配列の重複を除去している",
+        "配列をランダムにシャッフルしている（Fisher-Yatesアルゴリズム）",
+        "配列を逆順にしている"
+      ],
+      "answer": 2,
+      "explanation": ""
+    },
+    {
+      "id": "q003",
+      "app": "aws-quiz",
+      "topic": "分割代入",
+      "code": "[arr[i], arr[j]] = [arr[j], arr[i]];",
+      "question": "この1行のJavaScriptの書き方の名前と目的は？",
+      "choices": [
+        "テンプレートリテラル。文字列を結合する",
+        "分割代入(destructuring)。一時変数なしで配列の2要素を入れ替える(swap)",
+        "スプレッド構文。配列を展開する",
+        "オプショナルチェイニング。undefinedを安全に扱う"
+      ],
+      "answer": 1,
+      "explanation": ""
+    },
+    {
+      "id": "q004",
+      "app": "aws-quiz",
+      "topic": "日付とローカル時刻",
+      "code": "const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,\"0\")}-${String(d.getDate()).padStart(2,\"0\")}`;",
+      "question": "なぜ d.toISOString() ではなく、この ymd() のようにわざわざ書いているのか？",
+      "choices": [
+        "toISOString()はUTC基準のため、日本時間では日付が1日ずれることがあるから",
+        "toISOString()は動作が遅いから",
+        "toISOString()は古いブラウザで使えないから",
+        "特に理由はなく好みの問題"
+      ],
+      "answer": 0,
+      "explanation": ""
+    },
+    {
+      "id": "q005",
+      "app": "aws-quiz",
+      "topic": "localStorage",
+      "code": "function load(){\n  try{ questions = JSON.parse(localStorage.getItem(K_Q)) || []; }\n  catch(e){ questions = []; }\n}",
+      "question": "なぜ JSON.parse を try/catch で囲んでいる？",
+      "choices": [
+        "localStorageが存在しない環境でエラーになるのを防ぐため",
+        "保存されている値が壊れたJSON（またはnull）だった場合にアプリ全体が止まるのを防ぐため",
+        "非同期処理のエラーを捕まえるため",
+        "型チェックのため"
+      ],
+      "answer": 1,
+      "explanation": "JSON.parse()は壊れた形式の文字列（例:\"{bad_json:\"）を渡されると例外(SyntaxError)を投げて処理を中断させる。try/catchが無いとその時点でJSが止まりアプリ全体がクラッシュするため、catchで「データが壊れていたら空配列に初期化する」という安全策（フォールバック）を取っている。localStorageとJSON.parseはどちらも同期処理なので非同期エラーの話ではなく、型チェックの手段でもない。"
+    },
+    {
+      "id": "q006",
+      "app": "aws-quiz",
+      "topic": "関数型プログラミング",
+      "code": "function weakQuestions(){\n  return questions.filter(q => {\n    const p = progress[q.id];\n    return p && (p.wrongCount > 0);\n  }).sort((a,b)=>(progress[b.id].wrongCount)-(progress[a.id].wrongCount));\n}",
+      "question": "この関数は最終的に何を返す？",
+      "choices": [
+        "全問題を出題順のまま返す",
+        "一度も間違えていない問題だけを返す",
+        "間違えたことがある問題を、間違えた回数が多い順に並べて返す",
+        "間違えたことがある問題を、間違えた回数が少ない順に並べて返す"
+      ],
+      "answer": 2,
+      "explanation": ""
+    }
+  ]
+}
