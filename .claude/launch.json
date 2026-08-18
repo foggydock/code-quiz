@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "code-quiz",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4932"],
+      "port": 4932
+    }
+  ]
+}
