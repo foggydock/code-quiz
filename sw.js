@@ -1,4 +1,6 @@
 const CACHE = "codeq-v1";
+// 同じドメイン（foggydock.github.io）の他のアプリとキャッシュの置き場が共通なので、消すのはこの接頭辞の古い版だけにする
+const CACHE_PREFIX = "codeq-";
 const ASSETS = ["index.html", "manifest.json"];
 
 self.addEventListener("install", e => {
@@ -7,7 +9,7 @@ self.addEventListener("install", e => {
 });
 self.addEventListener("activate", e => {
   e.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith(CACHE_PREFIX) && k !== CACHE).map(k => caches.delete(k))))
   );
   self.clients.claim();
 });
