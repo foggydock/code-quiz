@@ -70,7 +70,7 @@
     overflow-x:auto; font-size:13px; line-height:1.5; margin:10px 0;
     font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
-  textarea,input[type=text],select{
+  textarea,select{
     width:100%; font-family:inherit; font-size:16px; border:2px solid var(--line);
     border-radius:10px; padding:11px; resize:vertical; background:var(--choicebg); color:var(--text);
   }
@@ -125,6 +125,7 @@ const K_P = "codeq_progress_v1";
 const K_T = "codeq_theme_v1";
 const K_B = "codeq_batch_v1";
 const K_F = "codeq_appfilter_v1";
+const K_D = "codeq_days_v1";
 
 function getBatch(){
   const v = parseInt(localStorage.getItem(K_B), 10);
@@ -133,7 +134,12 @@ function getBatch(){
 function setBatch(n){ localStorage.setItem(K_B, String(n)); render(); }
 
 /* アプリ名でしぼり込み（SM-2はそのまま、出題対象の母集団を絞るだけ） */
-function getFilter(){ return localStorage.getItem(K_F) || ""; }
+const appOf = q => q.app || "その他";
+function getFilter(){
+  const f = localStorage.getItem(K_F) || "";
+  // リセットや問題の入れ替えでそのアプリが無くなったら「すべて」扱い（0問のまま戻せなくなるのを防ぐ）
+  return (f && questions.some(q => appOf(q) === f)) ? f : "";
+}
 function setFilter(k){
   if(k) localStorage.setItem(K_F, k); else localStorage.removeItem(K_F);
   render();
@@ -141,14 +147,14 @@ function setFilter(k){
 function appGroups(){
   const map = {};
   questions.forEach(q=>{
-    const k = q.app || "その他";
+    const k = appOf(q);
     map[k] = (map[k]||0) + 1;
   });
   return Object.keys(map).sort().map(k=>({key:k, n:map[k]}));
 }
 function applyFilter(arr){
   const f = getFilter();
-  return f ? arr.filter(q=>(q.app||"その他")===f) : arr;
+  return f ? arr.filter(q=>appOf(q)===f) : arr;
 }
 
 /* ===== テーマ ===== */
@@ -176,60 +182,99 @@ function toggleTheme(){
 /* ===== 状態 ===== */
 let questions = [];
 let progress = {};
+let studyDays = []; // 学習した日（YYYY-MM-DD）。連続日数の計算用
 let view = "home";
 let session = null;
 
 const $ = sel => document.querySelector(sel);
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const todayStr = () => ymd(new Date());
+const isYmd = s => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+const parseYmd = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
 const addDays = (dateStr, n) => {
-  const [y,m,dd] = dateStr.split("-").map(Number);
-  const d = new Date(y, m-1, dd);
+  const d = parseYmd(dateStr);
   d.setDate(d.getDate() + n);
   return ymd(d);
 };
-function daysAgoLabel(isoOrDate){
-  if(!isoOrDate) return "";
-  const thenLocal = new Date(isoOrDate);
-  const then = new Date(thenLocal.getFullYear(), thenLocal.getMonth(), thenLocal.getDate());
-  const [ty,tm,td] = todayStr().split("-").map(Number);
-  const now = new Date(ty, tm-1, td);
-  const diff = Math.round((now - then) / 86400000);
+function daysAgoLabel(iso){
+  if(!iso) return "";
+  const diff = Math.round((parseYmd(todayStr()) - parseYmd(ymd(new Date(iso)))) / 86400000);
   if(diff <= 0) return "今日";
   if(diff === 1) return "1日前";
   return `${diff}日前`;
 }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
+  return arr;
+}
+
+/* ===== データの点検 =====
+   取り込むJSONは手で編集されることもある。選択肢や正解番号が壊れた問題は出題時に画面が止まり、
+   学習記録の数値や期限が壊れていると二度と出題されない・正答率が崩れるので、ここで弾く／直す。 */
+const toNum = v => (typeof v === "string" && v.trim() !== "") ? Number(v) : v;
+function cleanQuestion(q){
+  if(!q || typeof q !== "object") return null;
+  const id = (typeof q.id === "string" || typeof q.id === "number") ? String(q.id).trim() : "";
+  const answer = toNum(q.answer);
+  const ok = id && typeof q.question === "string" && q.question.trim()
+    && Array.isArray(q.choices) && q.choices.length >= 2 && q.choices.every(c => typeof c === "string")
+    && Number.isInteger(answer) && answer >= 0 && answer < q.choices.length;
+  return ok ? Object.assign({}, q, { id, answer }) : null;
+}
+function cleanProgress(p){
+  if(!p || typeof p !== "object" || Array.isArray(p)) return null;
+  const num = (v, def, min) => { const n = toNum(v); return (typeof n === "number" && isFinite(n)) ? Math.max(min, n) : def; };
+  const int = (v) => Math.round(num(v, 0, 0));
+  return Object.assign({}, p, {
+    ef: num(p.ef, 2.5, 1.3), interval: int(p.interval), due: isYmd(p.due) ? p.due : todayStr(),
+    reps: int(p.reps), lapses: int(p.lapses), seen: !!p.seen,
+    correctCount: int(p.correctCount), wrongCount: int(p.wrongCount),
+    lastQuality: p.lastQuality == null ? null : num(p.lastQuality, null, 0),
+    updatedAt: (typeof p.updatedAt === "string" && !isNaN(Date.parse(p.updatedAt))) ? p.updatedAt : ""
+  });
+}
 
 function load(){
-  try{ questions = JSON.parse(localStorage.getItem(K_Q)) || []; }catch(e){ questions = []; }
-  try{ progress = JSON.parse(localStorage.getItem(K_P)) || {}; }catch(e){ progress = {}; }
+  const read = k => { try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } };
+  const qs = read(K_Q), ps = read(K_P), ds = read(K_D);
+  questions = Array.isArray(qs) ? qs.map(cleanQuestion).filter(Boolean) : [];
+  progress = {};
+  if(ps && typeof ps === "object") Object.keys(ps).forEach(id => { const p = cleanProgress(ps[id]); if(p) progress[id] = p; });
+  studyDays = Array.isArray(ds) ? ds.filter(isYmd) : [];
 }
 function saveProgress(){ localStorage.setItem(K_P, JSON.stringify(progress)); }
 function saveQuestions(){ localStorage.setItem(K_Q, JSON.stringify(questions)); }
+function saveDays(){ localStorage.setItem(K_D, JSON.stringify(studyDays)); }
 
 /* JSON（questions.json / バックアップ / 貼り付け）を1つの入口で取り込む。idで上書きマージ（消しはしない）。 */
 function mergeData(d){
   if(!d || typeof d !== "object") throw new Error("JSONの形式が正しくありません");
-  const qarr = Array.isArray(d) ? d : (d.questions || []);
+  const qin = Array.isArray(d) ? d : (Array.isArray(d.questions) ? d.questions : []);
+  const qarr = qin.map(cleanQuestion).filter(Boolean);
   const parr = (d.progress && typeof d.progress === "object") ? d.progress : null;
 
   if(qarr.length){
     const m = {}; questions.forEach(q => m[q.id] = q);
-    qarr.forEach(q => { if(q.id) m[q.id] = q; });
+    qarr.forEach(q => { m[q.id] = q; });
     questions = Object.values(m); saveQuestions();
   }
   let pCount = 0;
   if(parr){
     Object.keys(parr).forEach(id => {
-      const inc = parr[id];
-      if(!inc || typeof inc !== "object") return;
+      const inc = cleanProgress(parr[id]);
+      if(!inc) return;
       const cur = progress[id];
-      if(!cur || (inc.updatedAt || "") > (cur.updatedAt || "")){ progress[id] = inc; pCount++; }
+      if(!cur || inc.updatedAt > (cur.updatedAt || "")){ progress[id] = inc; pCount++; }
     });
     if(pCount) saveProgress();
   }
-  return { q: qarr.length, p: pCount };
+  let dCount = 0;
+  if(Array.isArray(d.studyDays)){
+    d.studyDays.filter(isYmd).forEach(s => { if(!studyDays.includes(s)){ studyDays.push(s); dCount++; } });
+    if(dCount) saveDays();
+  }
+  return { q: qarr.length, p: pCount, d: dCount, skipped: qin.length - qarr.length };
 }
 
 function prog(id){
@@ -260,10 +305,13 @@ function applySM2(id, quality){
   p.due = addDays(todayStr(), p.interval);
   p.updatedAt = new Date().toISOString();
   saveProgress();
+  const t = todayStr();
+  if(!studyDays.includes(t)){ studyDays.push(t); saveDays(); }
 }
 
 function studyStreak(){
-  const days = new Set();
+  // 各問題の最終回答日だけだと、前日に解いた問題を今日解き直すと前日が消えて連続が途切れるため、学習日の記録も合わせて数える
+  const days = new Set(studyDays);
   Object.values(progress).forEach(p=>{
     if(p && p.updatedAt) days.add(ymd(new Date(p.updatedAt)));
   });
@@ -289,19 +337,27 @@ function weakQuestions(){
   }).sort((a,b)=>(progress[b.id].wrongCount)-(progress[a.id].wrongCount));
 }
 
+/* 今日の分：期限の来た復習を（期限の古い順に）先に入れ、残りの枠を未学習で埋める。
+   全体をランダムに選ぶと、未学習が多いあいだ復習が何日も後回しになり忘却曲線が働かないため */
+function todayQueue(){
+  const due = applyFilter(dueQuestions());
+  const byDue = (a,b) => { const x = progress[a.id].due, y = progress[b.id].due; return x < y ? -1 : x > y ? 1 : 0; };
+  const reviews = shuffle(due.filter(q=>progress[q.id])).sort(byDue);
+  const fresh = shuffle(due.filter(q=>!progress[q.id]));
+  const batch = getBatch();
+  const arr = reviews.concat(fresh);
+  return batch > 0 ? arr.slice(0, batch) : arr;
+}
+
 /* ===== セッション制御 ===== */
 function startSession(pool, label, limit){
   if(pool.length === 0){ alert("対象の問題がありません。"); return; }
-  let arr = [...pool];
-  for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
+  let arr = shuffle([...pool]);
   if(limit && limit > 0) arr = arr.slice(0, limit);
+  // 選択肢の並びも毎回入れ替え、正解の番号を付け直す
   arr = arr.map(q=>{
-    if(Array.isArray(q.choices) && q.choices.length>1){
-      const order = q.choices.map((_,i)=>i);
-      for(let i=order.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
-      return Object.assign({}, q, { choices: order.map(i=>q.choices[i]), answer: order.indexOf(q.answer) });
-    }
-    return q;
+    const order = shuffle(q.choices.map((_,i)=>i));
+    return Object.assign({}, q, { choices: order.map(i=>q.choices[i]), answer: order.indexOf(q.answer) });
   });
   session = { queue: arr, idx:0, label, done:0, correct:0, answered:false };
   view = "quiz";
@@ -349,9 +405,14 @@ function finishSession(){
 }
 
 /* ===== 画面描画 ===== */
+function renderCounts(){
+  $("#hdrSub").textContent = questions.length ? `全${questions.length}問` : "";
+  const el = $("#qCount");
+  if(el) el.textContent = questions.length;
+}
 function render(){
   syncNav();
-  $("#hdrSub").textContent = questions.length ? `全${questions.length}問` : "";
+  renderCounts();
   if(questions.length === 0 && view !== "settings"){
     $("#app").innerHTML = emptyState();
     return;
@@ -381,8 +442,9 @@ function renderHome(){
   const weak = applyFilter(weakQuestions());
   const batch = getBatch();
   const willDo = (batch > 0) ? Math.min(batch, due.length) : due.length;
+  const willReview = Math.min(willDo, due.length - newCount);
   const batchNote = (batch > 0 && due.length > batch)
-    ? `<p class="hint">今回はこの中から ${willDo} 問（残りは次回）</p>` : "";
+    ? `<p class="hint">今回はこの中から ${willDo} 問（復習${willReview}・未学習${willDo-willReview}。復習を優先し、残りは次回）</p>` : "";
 
   const groups = appGroups();
   const opts = [`<option value="">すべて（全${questions.length}問）</option>`]
@@ -404,7 +466,7 @@ function renderHome(){
       <p class="hint">未学習 ${newCount} 問 ／ 復習 ${due.length-newCount} 問</p>
       ${streakHtml}
       ${batchNote}
-      <button class="btn" onclick='startSession(applyFilter(dueQuestions()),"今日の分",getBatch())'>▶ ${willDo}問 始める</button>
+      <button class="btn" onclick='startSession(todayQueue(),"今日の分")'>▶ ${willDo}問 始める</button>
     </div>` : `
     <div class="card center">
       <p class="big" style="font-size:30px">今日の分は完了！🎉</p>
@@ -423,11 +485,10 @@ function renderHome(){
 
 function renderQuiz(){
   const q = session.queue[session.idx];
-  const num = Math.min(session.idx+1, session.queue.length);
   $("#app").innerHTML = `
     <div class="quit-row"><button class="quit-btn" onclick="quitSession()">やめる ✕</button></div>
     <div class="card">
-      <div class="progress-dots">${esc(session.label)} ・ ${num} / ${session.queue.length} 問</div>
+      <div class="progress-dots">${esc(session.label)} ・ ${session.idx+1} / ${session.queue.length} 問</div>
       <div>${(q.app?`<span class="tag">${esc(q.app)}</span>`:"")}${(q.topic?`<span class="tag">${esc(q.topic)}</span>`:"")}</div>
       ${renderHistoryBadge(q)}
       <h2 style="margin-top:8px">${esc(q.question)}</h2>
@@ -468,21 +529,24 @@ function renderChoice(q){
   return html;
 }
 
+/* 問題群の正解・不正解の累計と正答率 */
+function tally(qs){
+  let c=0, w=0;
+  qs.forEach(q=>{ const p=progress[q.id]; if(p){ c+=p.correctCount; w+=p.wrongCount; } });
+  return { c, w, acc: (c+w) ? Math.round(c/(c+w)*100) : 0 };
+}
+
 function renderStats(){
   const total = questions.length;
   const seen = questions.filter(q=>progress[q.id]&&progress[q.id].seen).length;
-  let cAll=0, wAll=0;
-  questions.forEach(q=>{ const p=progress[q.id]; if(p){cAll+=p.correctCount; wAll+=p.wrongCount;} });
-  const accAll = (cAll+wAll)? Math.round(cAll/(cAll+wAll)*100):0;
+  const all = tally(questions);
 
   let appHtml = "";
   appGroups().forEach(g=>{
-    const qs = questions.filter(q=>(q.app||"その他")===g.key);
-    let c=0,w=0;
-    qs.forEach(q=>{const p=progress[q.id]; if(p){c+=p.correctCount;w+=p.wrongCount;}});
-    const acc=(c+w)?Math.round(c/(c+w)*100):0;
-    appHtml += `<div class="stat-line"><span>${esc(g.key)}</span><span>${(c+w)?acc+'%':'未'} <span class="hint">(${qs.length}問)</span></span></div>
-      <div class="bar"><i style="width:${acc}%"></i></div>`;
+    const qs = questions.filter(q=>appOf(q)===g.key);
+    const s = tally(qs);
+    appHtml += `<div class="stat-line"><span>${esc(g.key)}</span><span>${(s.c+s.w)?s.acc+'%':'未'} <span class="hint">(${qs.length}問)</span></span></div>
+      <div class="bar"><i style="width:${s.acc}%"></i></div>`;
   });
 
   const weak = weakQuestions().slice(0,8);
@@ -493,15 +557,16 @@ function renderStats(){
 
   const t=todayStr();
   const upcoming = {};
-  questions.forEach(q=>{const p=progress[q.id]; if(p&&p.seen){ upcoming[p.due]=(upcoming[p.due]||0)+1; }});
+  // 期限を過ぎた分は今日やる分なので「今日」にまとめる（過去の日付のまま並べない）
+  questions.forEach(q=>{const p=progress[q.id]; if(p&&p.seen){ const d = p.due < t ? t : p.due; upcoming[d]=(upcoming[d]||0)+1; }});
   const upDates = Object.keys(upcoming).sort().slice(0,6);
-  const upHtml = upDates.length ? upDates.map(d=>`<div class="stat-line"><span>${d===t?'今日':d}</span><span>${upcoming[d]}問</span></div>`).join("") : '<p class="hint">まだ予定はありません。</p>';
+  const upHtml = upDates.length ? upDates.map(d=>`<div class="stat-line"><span>${d===t?'今日':esc(d)}</span><span>${upcoming[d]}問</span></div>`).join("") : '<p class="hint">まだ予定はありません。</p>';
 
   $("#app").innerHTML = `
     <div class="card center">
       <p class="muted">全体の正答率</p>
-      <p class="big">${accAll}%</p>
-      <p class="hint">学習済 ${seen}/${total}問 ・ 累計 ◯${cAll} ✕${wAll}</p>
+      <p class="big">${all.acc}%</p>
+      <p class="hint">学習済 ${seen}/${total}問 ・ 累計 ◯${all.c} ✕${all.w}</p>
     </div>
     <div class="card"><h2>アプリ別の正答率</h2>${appHtml||'<p class="hint">データなし</p>'}</div>
     <div class="card"><h2>間違いが多い問題</h2>${weakHtml}</div>
@@ -525,7 +590,7 @@ function renderSettings(){
       <input type="file" id="fileInput" accept=".json,application/json" style="margin:8px 0">
       <textarea id="pasteInput" rows="4" placeholder="ここにJSONを貼り付けてもOK"></textarea>
       <button class="btn" onclick="importPasted()">貼り付けたJSONを読み込む</button>
-      <p class="hint">現在 問題${questions.length}問 を保持中。</p>
+      <p class="hint">現在 問題<span id="qCount">${questions.length}</span>問 を保持中。</p>
     </div>
     <div class="card">
       <h2>バックアップ</h2>
@@ -555,11 +620,15 @@ function doImport(text){
   try{
     const data = JSON.parse(text);
     const n = mergeData(data);
-    if(!n.q && !n.p) throw new Error("問題・学習記録のいずれも見つかりません");
+    if(!n.q && !n.p && !n.d){
+      throw new Error(n.skipped ? `形式が正しくない問題が${n.skipped}件あり、読み込めるデータがありませんでした（id・問題文・選択肢・正解番号を確認してください）` : "問題・学習記録のいずれも見つかりません");
+    }
     const parts = [];
     if(n.q) parts.push(`問題${n.q}問`);
     if(n.p) parts.push(`学習記録${n.p}件`);
-    alert(`読み込み成功：${parts.join("・")}を追加/更新しました（合計 問題${questions.length}問）。`);
+    if(n.d) parts.push(`学習日${n.d}日分`);
+    const skipNote = n.skipped ? `\n※形式が正しくない問題${n.skipped}件は読み込みませんでした（id・問題文・選択肢・正解番号を確認してください）。` : "";
+    alert(`読み込み成功：${parts.join("・")}を追加/更新しました（合計 問題${questions.length}問）。${skipNote}`);
     view="home"; render();
   }catch(err){
     alert("読み込み失敗：" + err.message);
@@ -571,7 +640,7 @@ function importPasted(){
   doImport(t);
 }
 function exportProgress(){
-  const payload = { questions, progress, exportedAt:new Date().toISOString() };
+  const payload = { questions, progress, studyDays, exportedAt:new Date().toISOString() };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -581,14 +650,14 @@ function exportProgress(){
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
 }
 function resetProgress(){
-  if(!confirm("学習記録（正答率・復習予定）を消します。問題データは残ります。よろしいですか？")) return;
-  progress = {}; saveProgress();
+  if(!confirm("学習記録（正答率・復習予定・連続日数）を消します。問題データは残ります。よろしいですか？")) return;
+  progress = {}; studyDays = []; saveProgress(); saveDays();
   alert("学習記録を消しました。"); render();
 }
 function resetAll(){
-  if(!confirm("問題データも学習記録も全部消します。元に戻せません。よろしいですか？")) return;
-  localStorage.removeItem(K_Q); localStorage.removeItem(K_P);
-  questions=[]; progress={};
+  if(!confirm("問題データも学習記録も全部消します。元に戻せません。よろしいですか？\n（同梱の問題は次に開いたときにまた読み込まれます）")) return;
+  localStorage.removeItem(K_Q); localStorage.removeItem(K_P); localStorage.removeItem(K_D);
+  questions=[]; progress={}; studyDays=[];
   alert("すべて消しました。"); view="settings"; render();
 }
 
@@ -615,10 +684,11 @@ if("serviceWorker" in navigator){
 initTheme();
 load();
 render();
-// 同梱のquestions.jsonがあれば「常に最新」を取り込む（localhostで有効・配信版は404で無視）。
+// 同梱のquestions.jsonを毎回取り込み、問題を常に最新にする（配信版でも取得される。idで上書きするだけで学習記録は消さない。オフライン時は無視）。
 fetch("questions.json", {cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject()).then(d=>{
   mergeData(d);
-  render();
+  // 設定画面を描き直すと貼り付け途中のJSONや選んだファイルが消えるので、件数だけ更新する
+  if(view === "settings") renderCounts(); else render();
 }).catch(()=>{});
 </script>
 </body>
