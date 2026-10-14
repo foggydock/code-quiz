@@ -285,7 +285,7 @@ function prog(id){
 }
 
 /* ===== SM-2（忘却曲線） ===== */
-/* practice=true（ランダム練習）のときは正解数・不正解数と記録だけ更新し、復習の予定（間隔・次回日・連続正解）は動かさない */
+/* practice=true（ランダム・苦手練習）のときは正解数・不正解数と記録だけ更新し、復習の予定（間隔・次回日・連続正解）は動かさない */
 function applySM2(id, quality, practice){
   const p = prog(id);
   p.seen = true;
@@ -486,7 +486,7 @@ function renderHome(){
     <div class="card">
       <h2>ほかの出題</h2>
       <button class="btn secondary" onclick='startSession(applyFilter(questions.slice()),${f?'"このアプリ"':'"全問"'},0,true)'>${f?`このアプリをランダム（${allPool.length}問）`:`全${questions.length}問をランダム`}</button>
-      <button class="btn secondary" onclick='startSession(applyFilter(weakQuestions()),"苦手だけ")' ${weak.length?'':'disabled'}>苦手な問題だけ（${weak.length}問）</button>
+      <button class="btn secondary" onclick='startSession(applyFilter(weakQuestions()),"苦手だけ",0,true)' ${weak.length?'':'disabled'}>苦手な問題だけ（${weak.length}問）</button>
     </div>
     <p class="hint center">息抜き学習用。解いた結果は端末に保存されます。</p>
   `;
