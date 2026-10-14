@@ -285,10 +285,19 @@ function prog(id){
 }
 
 /* ===== SM-2（忘却曲線） ===== */
-function applySM2(id, quality){
+/* practice=true（ランダム練習）のときは正解数・不正解数と記録だけ更新し、復習の予定（間隔・次回日・連続正解）は動かさない */
+function applySM2(id, quality, practice){
   const p = prog(id);
   p.seen = true;
   p.lastQuality = quality;
+  if(practice){
+    if(quality >= 3) p.correctCount++; else { p.wrongCount++; p.lapses++; }
+    p.updatedAt = new Date().toISOString();
+    saveProgress();
+    const t = todayStr();
+    if(!studyDays.includes(t)){ studyDays.push(t); saveDays(); }
+    return;
+  }
   if(quality >= 3){
     p.correctCount++;
     if(p.reps === 0) p.interval = 1;
@@ -350,7 +359,7 @@ function todayQueue(){
 }
 
 /* ===== セッション制御 ===== */
-function startSession(pool, label, limit){
+function startSession(pool, label, limit, practice){
   if(pool.length === 0){ alert("対象の問題がありません。"); return; }
   let arr = shuffle([...pool]);
   if(limit && limit > 0) arr = arr.slice(0, limit);
@@ -359,7 +368,7 @@ function startSession(pool, label, limit){
     const order = shuffle(q.choices.map((_,i)=>i));
     return Object.assign({}, q, { choices: order.map(i=>q.choices[i]), answer: order.indexOf(q.answer) });
   });
-  session = { queue: arr, idx:0, label, done:0, correct:0, answered:false };
+  session = { queue: arr, idx:0, label, practice: !!practice, done:0, correct:0, answered:false };
   view = "quiz";
   render();
 }
@@ -372,7 +381,7 @@ function answerChoice(qi){
   const correct = qi === q.answer;
   if(correct) session.correct++;
   session.done++;
-  applySM2(q.id, correct ? 5 : 2);
+  applySM2(q.id, correct ? 5 : 2, session.practice);
   renderQuiz();
 }
 
@@ -476,7 +485,7 @@ function renderHome(){
   $("#app").innerHTML = filterCard + topCard + `
     <div class="card">
       <h2>ほかの出題</h2>
-      <button class="btn secondary" onclick='startSession(applyFilter(questions.slice()),${f?'"このアプリ"':'"全問"'})'>${f?`このアプリをランダム（${allPool.length}問）`:`全${questions.length}問をランダム`}</button>
+      <button class="btn secondary" onclick='startSession(applyFilter(questions.slice()),${f?'"このアプリ"':'"全問"'},0,true)'>${f?`このアプリをランダム（${allPool.length}問）`:`全${questions.length}問をランダム`}</button>
       <button class="btn secondary" onclick='startSession(applyFilter(weakQuestions()),"苦手だけ")' ${weak.length?'':'disabled'}>苦手な問題だけ（${weak.length}問）</button>
     </div>
     <p class="hint center">息抜き学習用。解いた結果は端末に保存されます。</p>
