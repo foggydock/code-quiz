@@ -693,7 +693,7 @@ if("serviceWorker" in navigator){
 initTheme();
 load();
 render();
-// 同梱のquestions.jsonを毎回取り込み、問題を常に最新にする（配信版でも取得される。idで上書きするだけで学習記録は消さない。オフライン時は無視）。
+// 手元の開発サーバーに questions.json があれば毎回取り込む（idで上書きするだけで学習記録は消さない）。公開版には問題を置いていないので404で無視され、問題は設定画面から読み込む。
 fetch("questions.json", {cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject()).then(d=>{
   mergeData(d);
   // 設定画面を描き直すと貼り付け途中のJSONや選んだファイルが消えるので、件数だけ更新する

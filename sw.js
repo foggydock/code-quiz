@@ -1,4 +1,4 @@
-const CACHE = "codeq-v4";
+const CACHE = "codeq-v5";
 // 同じドメイン（foggydock.github.io）の他のアプリとキャッシュの置き場が共通なので、消すのはこの接頭辞の古い版だけにする
 const CACHE_PREFIX = "codeq-";
 // "./" はホーム画面から開いたときのURL（manifestのstart_url）。index.htmlだけだと初回訪問直後のオフライン起動で見つからない
